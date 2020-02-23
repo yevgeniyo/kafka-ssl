@@ -42,7 +42,10 @@ if [ ! -f /cert/server.keystore.jks ]; then
     echo "sasl.enabled.mechanisms=PLAIN" >> /kafka/config/server.properties
     echo "#sasl.mechanism.inter.broker.protocol=PLAIN" >> /kafka/config/server.properties
     echo "zookeeper.set.acl=false" >> /kafka/config/server.properties
-
+    echo "replica.socket.receive.buffer.bytes=655360" >> /kafka/config/server.properties
+    # Should be added by upgrade 1.0, 1.1 or 2.3
+    #echo "inter.broker.protocol.version=2.3" >> /kafka/config/server.properties
+    
 
     cat <<EOT >> /kafka/config/kafka_server_jaas.conf
     KafkaServer {
