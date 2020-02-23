@@ -1,0 +1,113 @@
+On jenkins create job and run:
+
+         VAULT_TOKEN - take from lastpass
+
+         HOST_NAME - should be format: kafka<number>.<team/group>.<pop>.prod
+
+         BROKER_EXTERNAL_IP - set elastic IP of broker
+
+
+
+         This job will generate certificate (sign it by vault CA) and put it to S3 bucket: <see Jenkinsfile> and create DNS records on route53
+
+
+
+2. Upload certificates to broker host folder /root/cert/
+
+             aws s3 sync s3://<bucket>/<group>/<hostname>/ /root/cert/
+
+
+
+
+
+4. On zookeeper hosts run
+
+
+
+docker run --name zookeeper -d --restart=always   -p 2181:2181 -p 2888:2888 -p 3888:3888  --env 'ZOO_MY_ID=1' --env 'ZOO_SERVERS=server.1=0.0.0.0:2888:3888 server.2=x.x.193.190:2888:3888 server.3=x.x.193.199:2888:3888' zookeeper:3.4
+
+docker run --name zookeeper -d --restart=always   -p 2181:2181 -p 2888:2888 -p 3888:3888 --env 'ZOO_MY_ID=2'  --env 'ZOO_SERVERS=server.1=x.x.193.151:2888:3888 server.2=0.0.0.0:2888:3888 server.3=x.x.193.199:2888:3888' zookeeper:3.4
+
+docker run --name zookeeper -d --restart=always   -p 2181:2181 -p 2888:2888 -p 3888:3888 --env 'ZOO_MY_ID=3'  --env 'ZOO_SERVERS=server.1=x.x.193.151:2888:3888 server.2=x.x.193.190:2888:3888 server.3=0.0.0.0:2888:3888' zookeeper:3.4
+
+
+
+5. On kafka hosts:
+
+     5.1.    $(aws ecr get-login --no-include-email --region us-east-1)
+
+     5.2.
+
+docker run -d --restart=always  --name kafka1.<example.com> --hostname kafka1.<example.com> -p 9092:9092 -p 9192:9093 -p 7071:7071  -e "ZOOKEEPER_ADD=x.x.216.133:2181,x.x.217.125:2181,x.x.218.133:2181" -e BROKER_ID=1 -e ADV_PORT_SSL=9192 -e ADV_PORT_PLAIN=9092 ADV_ADD=x.x.x.x -v /root/cert:/cert -v /data/kafka:/data <your image>
+
+docker run -d --restart=always --name kafka2.<example.com> --hostname kafka2.<example.com> -p 9092:9092 -p 9192:9093 -p 7071:7071  -e "ZOOKEEPER_ADD=x.x.216.133:2181,x.x.217.125:2181,x.x.218.133:2181" -e BROKER_ID=2 -e ADV_PORT_SSL=9192 -e ADV_PORT_PLAIN=9092 -e ADV_ADD=x.x.x.x -v /root/cert:/cert -v /data/kafka:/data <your image>
+
+docker run -d --restart=always --name kafka3.<example.com> --hostname kafka3.<example.com> -p 9092:9092 -p 9192:9093 -p 7071:7071  -e "ZOOKEEPER_ADD=x.x.216.133:2181,x.x.217.125:2181,x.x.218.133:2181" -e BROKER_ID=3 -e ADV_PORT_SSL=9192 -e ADV_PORT_PLAIN=9092 -e ADV_ADD=x.x.x.x -v /root/cert:/cert -v /data/kafka:/data <your image>
+
+
+
+
+
+6. Provide to developers URLs of brokers:
+
+
+
+Like:
+
+kafka1.<example.com>
+kafka2.<example.com>
+kafka3.<example.com>
+
+
+
+7. Import CA to client.truststore.jks
+
+keytool -importcert -keystore client.truststore.jks -alias rootCa -file CA -noprompt -storepass <your password>
+
+
+
+Kafka SSL debbug:
+
+
+
+On any broker container create this file:
+
+
+/kafka/config/ssl.client
+
+
+ssl.truststore.location=/cert/client.truststore.jks
+ssl.truststore.password=<your pass>
+sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required \
+username="admin" \
+password="<your pass>";
+security.protocol=SASL_SSL
+sasl.mechanism=PLAIN
+
+
+
+      2. Run consume and producer
+
+
+/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka1.<example.com>:9192 --topic test --consumer.config ../config/ssl.client
+/kafka/bin/kafka-console-producer.sh --broker-list kafka1.<example.com>:9192 --topic test --producer.config ../config/ssl.client
+
+
+
+
+
+    3. Check that broker return certificate
+
+openssl s_client -connect kafka1.<example.com>:9192
+
+
+
+    4. Check that key fit to certificate
+
+(openssl x509 -noout -modulus -in cert | openssl md5 ; openssl rsa -noout -modulus -in key | openssl md5) | uniq
+
+
+
+    5. Read certificate in plain text
+
+openssl x509 -in cert -text -noout
